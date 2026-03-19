@@ -7,11 +7,15 @@
     "deploy": "wrangler deploy"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "sharp", "workerd"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "workerd"
+    ]
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4",
     "typescript": "^5",
-    "wrangler": "^3"
+    "wrangler": "^4"
   }
 }
