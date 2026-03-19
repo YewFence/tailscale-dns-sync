@@ -28,6 +28,26 @@ interface CFDNSListResponse {
   success: boolean
 }
 
+interface BatchPost {
+  type: 'A'
+  name: string
+  content: string
+  ttl: number
+  proxied: boolean
+  comment: string
+}
+
+interface BatchPatch {
+  id: string
+  content: string
+  ttl: number
+  comment: string
+}
+
+interface BatchDelete {
+  id: string
+}
+
 async function fetchTailscaleDevices(env: Env): Promise<Map<string, string>> {
   const url = `https://api.tailscale.com/api/v2/tailnet/${encodeURIComponent(env.TAILSCALE_TAILNET)}/devices`
   const res = await fetch(url, {
@@ -73,66 +93,6 @@ async function fetchExistingDNSRecords(env: Env): Promise<Map<string, { id: stri
   return recordMap
 }
 
-async function createRecord(env: Env, deviceName: string, ip: string): Promise<void> {
-  const fqdn = `${deviceName}.${env.DOMAIN_SUFFIX}`
-  const url = `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.CF_API_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      type: 'A',
-      name: fqdn,
-      content: ip,
-      ttl: 60,
-      proxied: false,
-      comment: 'tailscale-sync',
-    }),
-  })
-  if (!res.ok) {
-    throw new Error(`Cloudflare create DNS error for ${fqdn}: ${res.status} ${await res.text()}`)
-  }
-  console.log(`Created: ${fqdn} → ${ip}`)
-}
-
-async function updateRecord(env: Env, recordId: string, deviceName: string, ip: string): Promise<void> {
-  const fqdn = `${deviceName}.${env.DOMAIN_SUFFIX}`
-  const url = `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records/${recordId}`
-  const res = await fetch(url, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${env.CF_API_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      content: ip,
-      ttl: 60,
-      comment: 'tailscale-sync',
-    }),
-  })
-  if (!res.ok) {
-    throw new Error(`Cloudflare update DNS error for ${fqdn}: ${res.status} ${await res.text()}`)
-  }
-  console.log(`Updated: ${fqdn} → ${ip}`)
-}
-
-async function deleteRecord(env: Env, recordId: string, deviceName: string): Promise<void> {
-  const fqdn = `${deviceName}.${env.DOMAIN_SUFFIX}`
-  const url = `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records/${recordId}`
-  const res = await fetch(url, {
-    method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${env.CF_API_TOKEN}`,
-    },
-  })
-  if (!res.ok) {
-    throw new Error(`Cloudflare delete DNS error for ${fqdn}: ${res.status} ${await res.text()}`)
-  }
-  console.log(`Deleted: ${fqdn}`)
-}
-
 async function syncDNS(env: Env): Promise<void> {
   console.log('Starting Tailscale → Cloudflare DNS sync...')
 
@@ -143,29 +103,49 @@ async function syncDNS(env: Env): Promise<void> {
 
   console.log(`Tailscale devices: ${tailscaleDevices.size}, existing DNS records: ${existingRecords.size}`)
 
-  const ops: Promise<void>[] = []
+  const posts: BatchPost[] = []
+  const patches: BatchPatch[] = []
+  const deletes: BatchDelete[] = []
 
   // 新增或更新
   for (const [deviceName, ip] of tailscaleDevices) {
     const existing = existingRecords.get(deviceName)
+    const fqdn = `${deviceName}.${env.DOMAIN_SUFFIX}`
     if (!existing) {
-      ops.push(createRecord(env, deviceName, ip))
+      posts.push({ type: 'A', name: fqdn, content: ip, ttl: 60, proxied: false, comment: 'tailscale-sync' })
     } else if (existing.ip !== ip) {
-      ops.push(updateRecord(env, existing.id, deviceName, ip))
+      patches.push({ id: existing.id, content: ip, ttl: 60, comment: 'tailscale-sync' })
     } else {
-      console.log(`Unchanged: ${deviceName}.${env.DOMAIN_SUFFIX} → ${ip}`)
+      console.log(`Unchanged: ${fqdn} → ${ip}`)
     }
   }
 
   // 删除已下线设备
   for (const [deviceName, record] of existingRecords) {
     if (!tailscaleDevices.has(deviceName)) {
-      ops.push(deleteRecord(env, record.id, deviceName))
+      deletes.push({ id: record.id })
+      console.log(`Queued delete: ${deviceName}.${env.DOMAIN_SUFFIX}`)
     }
   }
 
-  await Promise.all(ops)
-  console.log('Sync complete.')
+  if (posts.length === 0 && patches.length === 0 && deletes.length === 0) {
+    console.log('Nothing to sync.')
+    return
+  }
+
+  const url = `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records/batch`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.CF_API_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ posts, patches, deletes }),
+  })
+  if (!res.ok) {
+    throw new Error(`Cloudflare batch DNS error: ${res.status} ${await res.text()}`)
+  }
+  console.log(`Sync complete. created=${posts.length} updated=${patches.length} deleted=${deletes.length}`)
 }
 
 export default {
