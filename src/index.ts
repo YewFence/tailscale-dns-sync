@@ -4,6 +4,7 @@ interface Env {
   CF_API_TOKEN: string
   CF_ZONE_ID: string
   DOMAIN_SUFFIX: string
+  TRIGGER_TOKEN: string
 }
 
 interface TailscaleDevice {
@@ -168,6 +169,19 @@ async function syncDNS(env: Env): Promise<void> {
 }
 
 export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const { pathname } = new URL(request.url)
+    if (pathname !== '/trigger') {
+      return new Response('Not Found', { status: 404 })
+    }
+    const token = request.headers.get('Authorization')?.replace('Bearer ', '')
+    if (!token || token !== env.TRIGGER_TOKEN) {
+      return new Response('Unauthorized', { status: 401 })
+    }
+    ctx.waitUntil(syncDNS(env))
+    return new Response('Sync triggered', { status: 202 })
+  },
+
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
     await syncDNS(env)
   },
