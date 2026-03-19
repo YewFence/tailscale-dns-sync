@@ -201,6 +201,29 @@ async function syncDNS(env: Env): Promise<void> {
   console.log(`Sync complete. created=${posts.length} updated=${patches.length} deleted=${deletes.length}`)
 }
 
+async function purgeAllRecords(env: Env): Promise<void> {
+  console.log('Purging all tailscale-sync DNS records...')
+  const existingRecords = await fetchExistingDNSRecords(env)
+  if (existingRecords.size === 0) {
+    console.log('Nothing to purge.')
+    return
+  }
+  const deletes: BatchDelete[] = Array.from(existingRecords.values()).map(({ id }) => ({ id }))
+  const url = `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records/batch`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.CF_API_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ deletes }),
+  })
+  if (!res.ok) {
+    throw new Error(`Cloudflare batch DNS error: ${res.status} ${await res.text()}`)
+  }
+  console.log(`Purge complete. deleted=${deletes.length}`)
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(request.url)
@@ -212,6 +235,15 @@ export default {
       }
       ctx.waitUntil(syncDNS(env))
       return new Response('Sync triggered', { status: 202 })
+    }
+
+    if (pathname === '/purge') {
+      const token = request.headers.get('Authorization')?.replace('Bearer ', '')
+      if (!token || token !== env.TRIGGER_TOKEN) {
+        return new Response('Unauthorized', { status: 401 })
+      }
+      ctx.waitUntil(purgeAllRecords(env))
+      return new Response('Purge triggered', { status: 202 })
     }
 
     if (pathname === '/webhook') {
