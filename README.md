@@ -1,4 +1,4 @@
-# auto-cf-dns
+# tailscale-dns-sync
 
 Cloudflare Worker，自动将 Tailscale 设备同步为 Cloudflare DNS 记录。支持每小时定时同步、手动触发、以及 Tailscale Webhook 实时同步三种方式。
 
