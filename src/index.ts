@@ -84,11 +84,8 @@ async function fetchExistingDNSRecords(env: Env): Promise<Map<string, { id: stri
   }
   const data = (await res.json()) as CFDNSListResponse
   const recordMap = new Map<string, { id: string; ip: string }>()
-  const suffix = `.${env.DOMAIN_SUFFIX}`
   for (const record of data.result) {
-    if (!record.name.endsWith(suffix)) continue
-    const deviceName = record.name.slice(0, -suffix.length)
-    recordMap.set(deviceName, { id: record.id, ip: record.content })
+    recordMap.set(record.name, { id: record.id, ip: record.content })
   }
   return recordMap
 }
@@ -107,24 +104,31 @@ async function syncDNS(env: Env): Promise<void> {
   const patches: BatchPatch[] = []
   const deletes: BatchDelete[] = []
 
-  // 新增或更新
+  // 新增或更新（每台设备对应两条记录：A + wildcard）
   for (const [deviceName, ip] of tailscaleDevices) {
-    const existing = existingRecords.get(deviceName)
     const fqdn = `${deviceName}.${env.DOMAIN_SUFFIX}`
-    if (!existing) {
-      posts.push({ type: 'A', name: fqdn, content: ip, ttl: 60, proxied: false, comment: 'tailscale-sync' })
-    } else if (existing.ip !== ip) {
-      patches.push({ id: existing.id, content: ip, ttl: 60, comment: 'tailscale-sync' })
-    } else {
-      console.log(`Unchanged: ${fqdn} → ${ip}`)
+    const wildcard = `*.${deviceName}.${env.DOMAIN_SUFFIX}`
+    for (const name of [fqdn, wildcard]) {
+      const existing = existingRecords.get(name)
+      if (!existing) {
+        posts.push({ type: 'A', name, content: ip, ttl: 60, proxied: false, comment: 'tailscale-sync' })
+      } else if (existing.ip !== ip) {
+        patches.push({ id: existing.id, content: ip, ttl: 60, comment: 'tailscale-sync' })
+      } else {
+        console.log(`Unchanged: ${name} → ${ip}`)
+      }
     }
   }
 
-  // 删除已下线设备
-  for (const [deviceName, record] of existingRecords) {
+  // 删除已下线设备的记录（A + wildcard 都删）
+  const suffix = `.${env.DOMAIN_SUFFIX}`
+  for (const [fqdn, record] of existingRecords) {
+    const base = fqdn.startsWith('*.') ? fqdn.slice(2) : fqdn
+    if (!base.endsWith(suffix)) continue
+    const deviceName = base.slice(0, -suffix.length)
     if (!tailscaleDevices.has(deviceName)) {
       deletes.push({ id: record.id })
-      console.log(`Queued delete: ${deviceName}.${env.DOMAIN_SUFFIX}`)
+      console.log(`Queued delete: ${fqdn}`)
     }
   }
 
