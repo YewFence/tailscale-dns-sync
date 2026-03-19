@@ -5,6 +5,7 @@ interface Env {
   CF_ZONE_ID: string
   DOMAIN_SUFFIX: string
   TRIGGER_TOKEN: string
+  TAILSCALE_WEBHOOK_SECRET: string
 }
 
 interface TailscaleDevice {
@@ -46,6 +47,54 @@ interface BatchPatch {
 
 interface BatchDelete {
   id: string
+}
+
+// Tailscale webhook 事件类型（只关心节点相关的）
+const NODE_EVENTS = new Set([
+  'nodeCreated',
+  'nodeDeleted',
+  'nodeApproved',
+  'nodeNeedsApproval',
+  'nodeKeyExpiringInOneDay',
+  'nodeKeyExpired',
+])
+
+interface TailscaleWebhookPayload {
+  timestamp: string
+  version: number
+  type: string
+  tailnet: string
+  data: unknown
+}
+
+// 验证 Tailscale webhook 签名
+// Header 格式：t=<unix-timestamp>,v1=<hmac-sha256-hex>
+// 签名内容：<unix-timestamp>.<raw-body>
+// 参考：https://github.com/tailscale/tailscale/blob/main/docs/webhooks/example.go
+async function verifyWebhookSignature(secret: string, header: string, body: string): Promise<boolean> {
+  const parts = Object.fromEntries(header.split(',').map((p) => p.split('=')))
+  const timestamp = parts['t']
+  const signature = parts['v1']
+  if (!timestamp || !signature) return false
+
+  // 验证时间戳新鲜度，拒绝 5 分钟前的请求（防 replay attack）
+  const ts = parseInt(timestamp, 10)
+  if (isNaN(ts) || Date.now() / 1000 - ts > 300) return false
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  const payload = new TextEncoder().encode(`${timestamp}.${body}`)
+  const signed = await crypto.subtle.sign('HMAC', key, payload)
+  const expected = Array.from(new Uint8Array(signed))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+
+  return expected === signature
 }
 
 async function fetchTailscaleDevices(env: Env): Promise<Map<string, string>> {
@@ -155,15 +204,39 @@ async function syncDNS(env: Env): Promise<void> {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const { pathname } = new URL(request.url)
-    if (pathname !== '/trigger') {
-      return new Response('Not Found', { status: 404 })
+
+    if (pathname === '/trigger') {
+      const token = request.headers.get('Authorization')?.replace('Bearer ', '')
+      if (!token || token !== env.TRIGGER_TOKEN) {
+        return new Response('Unauthorized', { status: 401 })
+      }
+      ctx.waitUntil(syncDNS(env))
+      return new Response('Sync triggered', { status: 202 })
     }
-    const token = request.headers.get('Authorization')?.replace('Bearer ', '')
-    if (!token || token !== env.TRIGGER_TOKEN) {
-      return new Response('Unauthorized', { status: 401 })
+
+    if (pathname === '/webhook') {
+      if (request.method !== 'POST') {
+        return new Response('Method Not Allowed', { status: 405 })
+      }
+      const sigHeader = request.headers.get('Tailscale-Webhook-Signature')
+      if (!sigHeader) {
+        return new Response('Unauthorized', { status: 401 })
+      }
+      const body = await request.text()
+      const valid = await verifyWebhookSignature(env.TAILSCALE_WEBHOOK_SECRET, sigHeader, body)
+      if (!valid) {
+        return new Response('Unauthorized', { status: 401 })
+      }
+      const events = JSON.parse(body) as TailscaleWebhookPayload[]
+      const shouldSync = events.some((e) => NODE_EVENTS.has(e.type))
+      if (shouldSync) {
+        console.log(`Webhook triggered sync by event: ${events.map((e) => e.type).join(', ')}`)
+        ctx.waitUntil(syncDNS(env))
+      }
+      return new Response('OK', { status: 200 })
     }
-    ctx.waitUntil(syncDNS(env))
-    return new Response('Sync triggered', { status: 202 })
+
+    return new Response('Not Found', { status: 404 })
   },
 
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
