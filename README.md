@@ -1,6 +1,10 @@
 # tailscale-dns-sync
 
-Cloudflare Worker，自动将 Tailscale 设备同步为 Cloudflare DNS 记录。支持每小时定时同步、手动触发、以及 Tailscale Webhook 实时同步三种方式。
+Cloudflare Worker，自动将 Tailscale 设备同步为 Cloudflare **A 记录**，每台设备同时创建主机名记录和泛域名记录（`*.hostname.ts.example.com`）。支持每小时定时同步、手动触发、以及 Tailscale Webhook 实时同步三种方式。
+
+> **为什么需要这个？** Tailscale 官方的 [MagicDNS 子域解析](https://tailscale.com/docs/reference/dns-in-tailscale)（`*.device.ts.net`）目前尚未开放，这个 Worker 用自己的域名实现了等价功能——你可以通过 `https://service.my-macbook.ts.yew.im` 这样的自定义短链直接访问 Tailscale 设备上运行的服务，无需记 IP。
+
+> 实际上，已经有一个实现该功能并合并进入主分支的 [PR](https://github.com/tailscale/tailscale/pull/18258)，但是 Tailscale 官方控制平面尚未开放此功能
 
 ## 工作原理
 
@@ -47,6 +51,9 @@ pnpm install
 # 设置 secrets
 cp .dev.vars.example .dev.vars
 pnpm wrangler secret bulk .dev.vars
+
+# 配置 wrangler.toml
+cp wrangler.toml.example wrangler.toml
 
 # 部署
 pnpm deploy
@@ -96,8 +103,6 @@ WORKER_URL=https://auto-cf-dns.xxx.workers.dev TRIGGER_TOKEN=your-token bash tri
 curl -X POST https://auto-cf-dns.xxx.workers.dev/trigger \
   -H "Authorization: Bearer your-token"
 ```
-
-成功返回 `202 Accepted`，sync 在后台异步执行。
 
 成功返回 `202 Accepted`，sync 在后台异步执行。
 
