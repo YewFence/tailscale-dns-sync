@@ -160,9 +160,9 @@ async function syncDNS(env: Env): Promise<void> {
     for (const name of [fqdn, wildcard]) {
       const existing = existingRecords.get(name)
       if (!existing) {
-        posts.push({ type: 'A', name, content: ip, ttl: 60, proxied: false, comment: 'tailscale-sync' })
+        posts.push({ type: 'A', name, content: ip, ttl: 1, proxied: false, comment: 'tailscale-sync' })
       } else if (existing.ip !== ip) {
-        patches.push({ id: existing.id, content: ip, ttl: 60, comment: 'tailscale-sync' })
+        patches.push({ id: existing.id, content: ip, ttl: 1, comment: 'tailscale-sync' })
       } else {
         console.log(`Unchanged: ${name} → ${ip}`)
       }
