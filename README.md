@@ -106,6 +106,8 @@ curl -X POST https://auto-cf-dns.xxx.workers.dev/trigger \
 
 成功返回 `202 Accepted`，sync 在后台异步执行。
 
+> 实际上，如果你不介意，每次 Tailscale 网络更新时你也可以自己手动本地运行该项目来触发同步，无需部署 Worker ，对于不想要自己的 worker 被打 / worker 资源紧张的用户来说是个不错的选择。
+
 ## 清除所有记录
 
 通过 `reset.sh` 删除所有由本 Worker 管理的 DNS 记录（`comment=tailscale-sync`），执行前会要求二次确认：
@@ -126,7 +128,7 @@ curl -X POST https://auto-cf-dns.xxx.workers.dev/purge \
 部署完成后，可以选择在 Tailscale admin console → [Settings → Webhooks](https://login.tailscale.com/admin/settings/webhooks) 添加 Webhook：
 
 - **Endpoint URL**：`https://auto-cf-dns.xxx.workers.dev/webhook`
-- **订阅的事件**：勾选所有 `nodeCreated` `nodeDeleted` 事件
+- **事件订阅**：勾选 `nodeCreated` `nodeDeleted` 事件
 
 Tailscale 会在创建时展示签名密钥（只显示一次），将其设置为 `TAILSCALE_WEBHOOK_SECRET`：
 
