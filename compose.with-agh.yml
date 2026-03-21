@@ -1,13 +1,14 @@
+# 与 AdguardHome 一起部署的示例
 services:
   adguardhome:
     image: adguard/adguardhome
     container_name: adguardhome
     restart: unless-stopped
     ports:
-      - "{TAILSCALE_IP:-127.0.0.1}:53:53/tcp"
-      - "{TAILSCALE_IP:-127.0.0.1}:53:53/udp"
-      - "{TAILSCALE_IP:-127.0.0.1}:3000:3000" # 默认端口
-      # - "{TAILSCALE_IP:-127.0.0.1}:5300:5300/tcp" # 自定义设置面板端口
+      - "${TAILSCALE_IP:-127.0.0.1}:53:53/tcp"
+      - "${TAILSCALE_IP:-127.0.0.1}:53:53/udp"
+      - "${TAILSCALE_IP:-127.0.0.1}:3000:3000" # 默认端口
+      # - "${TAILSCALE_IP:-127.0.0.1}:5300:5300/tcp" # 自定义设置面板端口
     volumes:
       # 此处不需要手动创建 work 和 conf 目录，AdGuard Home 会在启动时自动创建
       # 并且由于需要绑定 53 端口，容器用户是 root，因此容器内的权限应该不会有问题
@@ -17,19 +18,20 @@ services:
       - adguard_network
       # - traefik # 反向代理网络示例
   tailscale-dns-sync:
-    build: .
+    image: ghcr.io/yewfence/tailscale-dns-sync:main
+    # build: .  # 本地构建取消注释
     restart: unless-stopped
     environment:
       - TAILSCALE_API_KEY=${TAILSCALE_API_KEY}
       - TAILSCALE_TAILNET=${TAILSCALE_TAILNET}
-      - DOMAIN_SUFFIX=${DOMAIN_SUFFIX:-ts,internel.net}
+      - DOMAIN_SUFFIX=${DOMAIN_SUFFIX:-ts.internal.net}
       - ADGUARD_URL=${ADGUARD_URL:-http://adguardhome:3000}
       - ADGUARD_USERNAME=${ADGUARD_USERNAME}
       - ADGUARD_PASSWORD=${ADGUARD_PASSWORD}
       - CRON_SCHEDULE=${CRON_SCHEDULE:-0 * * * *}
       - TRIGGER_TOKEN=${TRIGGER_TOKEN}
     ports:
-      - "{PORT:-3001}:3001"
+      - "${PORT:-3001}:3001"
     networks:
       - adguard_network
 

@@ -19,13 +19,14 @@
 |------|------|------|------|
 | `TAILSCALE_API_KEY` | ✅ | Tailscale API Key | `tskey-api-xxx` |
 | `TAILSCALE_TAILNET` | ✅ | Tailnet 名称 | `example.com` |
-| `DOMAIN_SUFFIX` | ✅ | 内网域名后缀 | `ts,internel.net` |
+| `DOMAIN_SUFFIX` | ✅ | 内网域名后缀 | `ts.internal.net` |
 | `ADGUARD_URL` | ✅ | AdGuard Home 地址 | `http://adguardhome:3000` |
 | `ADGUARD_USERNAME` | ✅ | AGH 用户名 | `admin` |
 | `ADGUARD_PASSWORD` | ✅ | AGH 密码 | `password` |
 | `CRON_SCHEDULE` | - | 同步频率，默认每小时 | `0 * * * *` |
 | `TRIGGER_TOKEN` | - | 手动触发鉴权 token | 随机字符串 |
 | `PORT` | - | HTTP 服务端口，默认 3001 | `3001` |
+| `TAILSCALE_IP`| - | Tailscale 内网 IP | `127.0.0.1` | `100.1.1.1` |
 
 > 域名后缀建议使用真实有效的 tld，否则浏览器可能会将输入的域名错误的识别为需要搜索的文本，而不是直接访问。
 
@@ -41,11 +42,10 @@ docker compose up -d
 
 ### 本地开发
 
+需要 Go 1.23+。
+
 ```bash
-cp .env.example .env
-# 编辑 .env
-pnpm install
-pnpm dev
+go run .
 ```
 
 ## HTTP 接口
@@ -54,10 +54,12 @@ pnpm dev
 |------|------|
 | `GET /health` | 健康检查 |
 | `POST /trigger` | 立即触发同步（需 `Authorization: Bearer <TRIGGER_TOKEN>`） |
+| `POST /purge` | 删除所有托管的 DNS 记录（需 `Authorization: Bearer <TRIGGER_TOKEN>`） |
 
 ```bash
 curl http://localhost:3001/health
 curl -X POST http://localhost:3001/trigger -H "Authorization: Bearer your-token"
+curl -X POST http://localhost:3001/purge  -H "Authorization: Bearer your-token"
 ```
 
 ## 与 AdGuard Home 同网络部署

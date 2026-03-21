@@ -1,5 +1,3 @@
-node_modules/
-.wrangler/
-.dev.vars
-dist/
 .env
+tailscale-dns-sync
+tailscale-dns-sync.exe

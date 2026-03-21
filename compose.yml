@@ -1,6 +1,7 @@
 services:
   tailscale-dns-sync:
-    build: .
+    image: ghcr.io/yewfence/tailscale-dns-sync:main
+    # build: .  # 本地构建取消注释
     restart: unless-stopped
     environment:
       - TAILSCALE_API_KEY=${TAILSCALE_API_KEY}
@@ -11,6 +12,6 @@ services:
       - ADGUARD_PASSWORD=${ADGUARD_PASSWORD}
       - CRON_SCHEDULE=${CRON_SCHEDULE:-0 * * * *}
       - TRIGGER_TOKEN=${TRIGGER_TOKEN}
-      - PORT=3000
+      - PORT=3001
     ports:
-      - "3000:3000"
+      - "${TAILSCALE_IP:-127.0.0.1}:3001:3001"
