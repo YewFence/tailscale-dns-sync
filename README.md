@@ -1,143 +1,65 @@
 # tailscale-dns-sync
 
-Cloudflare Worker，自动将 Tailscale 设备同步为 Cloudflare **A 记录**，每台设备同时创建主机名记录和泛域名记录（`*.hostname.ts.example.com`）。支持每小时定时同步、手动触发、以及 Tailscale Webhook 实时同步三种方式。
+把 Tailscale 设备列表同步到 **AdGuard Home DNS 覆写**，在内网通过自定义域名访问 Tailscale 设备。
 
-> **为什么需要这个？** Tailscale 官方的 [MagicDNS 子域解析](https://tailscale.com/docs/reference/dns-in-tailscale)（`*.device.ts.net`）目前尚未开放，这个 Worker 用自己的域名实现了等价功能——你可以通过 `https://service.my-macbook.ts.yew.im` 这样的自定义短链直接访问 Tailscale 设备上运行的服务，无需记 IP。
-
-> 实际上，已经有一个实现该功能并合并进入主分支的 [PR](https://github.com/tailscale/tailscale/pull/18258)，但是 Tailscale 官方控制平面尚未开放此功能
+> 相比之前把 IP 同步到 Cloudflare 公网 DNS 的方案，AGH DNS 覆写只在内网生效，不会把内网 IP 暴露在公网。
 
 ## 工作原理
 
-同步逻辑分三步执行：
+定时拉取 Tailscale API，对比 AdGuard Home 的 DNS rewrite 规则，增删改以保持同步。每台设备自动创建两条记录：
 
-1. **拉取 Tailscale 设备列表** — 调用 Tailscale API，取每台设备的 `hostname`（短名）和 `addresses`（取 `100.x.x.x` 段的 Tailscale IP）
-2. **拉取现有 DNS 记录** — 从 Cloudflare 查询 `comment=tailscale-sync` 的 A 记录，只操作本 Worker 管理的记录，不碰手动创建的
-3. **对比同步**：
-   - 新设备 → 创建 DNS 记录
-   - IP 有变化 → 更新 DNS 记录
-   - 设备已从 Tailscale 移除 → 删除 DNS 记录
-
-每台设备同时维护两条记录，TTL Auto，不开 Cloudflare 代理：
 ```
-my-macbook.ts.yew.im    A  100.x.x.x
-*.my-macbook.ts.yew.im  A  100.x.x.x
+<hostname>.<DOMAIN_SUFFIX>    → Tailscale IP
+*.<hostname>.<DOMAIN_SUFFIX>  → Tailscale IP（支持子域名）
 ```
-
-**触发方式：**
-- **定时**：cron `0 * * * *`，每小时执行一次
-- **Webhook**：Tailscale 设备变更时实时推送，Worker 验签后立即触发同步
-- **手动**：调用 `/trigger` 端点
 
 ## 环境变量
 
-部署前需要通过 `wrangler secret put` 设置以下变量：
+| 变量 | 必填 | 说明 | 示例 |
+|------|------|------|------|
+| `TAILSCALE_API_KEY` | ✅ | Tailscale API Key | `tskey-api-xxx` |
+| `TAILSCALE_TAILNET` | ✅ | Tailnet 名称 | `example.com` |
+| `DOMAIN_SUFFIX` | ✅ | 内网域名后缀 | `ts,internel.net` |
+| `ADGUARD_URL` | ✅ | AdGuard Home 地址 | `http://adguardhome:3000` |
+| `ADGUARD_USERNAME` | ✅ | AGH 用户名 | `admin` |
+| `ADGUARD_PASSWORD` | ✅ | AGH 密码 | `password` |
+| `CRON_SCHEDULE` | - | 同步频率，默认每小时 | `0 * * * *` |
+| `TRIGGER_TOKEN` | - | 手动触发鉴权 token | 随机字符串 |
+| `PORT` | - | HTTP 服务端口，默认 3001 | `3001` |
 
-| 变量名 | 说明 |
-|---|---|
-| `TAILSCALE_API_KEY` | Tailscale API Key，在 [admin console](https://login.tailscale.com/admin/settings/keys) 生成 |
-| `TAILSCALE_TAILNET` | tailnet 名称，通常是你的邮箱或组织名（如 `example.com`） |
-| `CF_API_TOKEN` | Cloudflare API Token，需要 **DNS:Edit** 权限 |
-| `CF_ZONE_ID` | 域名的 Zone ID，在 Cloudflare 域名概览页右侧可以找到 |
-| `DOMAIN_SUFFIX` | 子域前缀，如 `ts.yew.im`（不含前导点） |
-| `TRIGGER_TOKEN` | 手动触发 API 的鉴权 Token，自己随机生成一个即可 |
-| `TAILSCALE_WEBHOOK_SECRET` | Tailscale Webhook 的签名密钥，在配置 Webhook 时由 Tailscale 生成 |
+> 域名后缀建议使用真实有效的 tld，否则浏览器可能会将输入的域名错误的识别为需要搜索的文本，而不是直接访问。
 
-## 部署
+## 快速开始
+
+### Docker Compose
 
 ```bash
-# 安装依赖
+cp .env.example .env
+# 编辑 .env 填入真实配置
+docker compose up -d
+```
+
+### 本地开发
+
+```bash
+cp .env.example .env
+# 编辑 .env
 pnpm install
-
-# 设置 secrets
-cp .dev.vars.example .dev.vars
-pnpm wrangler secret bulk .dev.vars
-
-# 配置 wrangler.toml
-cp wrangler.toml.example wrangler.toml
-
-# 部署
-pnpm deploy
-```
-
-## 本地测试
-
-```bash
-# 启动本地开发服务器
 pnpm dev
-
-# 另开一个终端，手动触发 scheduled 事件
-curl "http://127.0.0.1:8787/cdn-cgi/handler/scheduled"
-
-# 或者直接手动触发 sync ，注意，这会直接修改你的 DNS 记录
-bash trigger.sh
 ```
 
-注意本地测试时敏感环境变量需要用 `.dev.vars` 文件：
+## HTTP 接口
 
-```ini
-# .dev.vars（不要提交到 git）
-TAILSCALE_API_KEY=tskey-api-xxx
-TAILSCALE_TAILNET=example.com
-CF_API_TOKEN=xxx
-CF_ZONE_ID=xxx
-DOMAIN_SUFFIX=ts.yew.im
-TRIGGER_TOKEN=xxx
-TAILSCALE_WEBHOOK_SECRET=xxx
-```
-
-## 手动触发
-
-可以通过 `trigger.sh` 手动触发一次同步：
+| 接口 | 说明 |
+|------|------|
+| `GET /health` | 健康检查 |
+| `POST /trigger` | 立即触发同步（需 `Authorization: Bearer <TRIGGER_TOKEN>`） |
 
 ```bash
-# 交互式输入
-bash trigger.sh
-
-# 或通过环境变量传入
-WORKER_URL=https://auto-cf-dns.xxx.workers.dev TRIGGER_TOKEN=your-token bash trigger.sh
+curl http://localhost:3001/health
+curl -X POST http://localhost:3001/trigger -H "Authorization: Bearer your-token"
 ```
 
-也可以直接用 curl：
+## 与 AdGuard Home 同网络部署
 
-```bash
-curl -X POST https://auto-cf-dns.xxx.workers.dev/trigger \
-  -H "Authorization: Bearer your-token"
-```
-
-成功返回 `202 Accepted`，sync 在后台异步执行。
-
-> 实际上，如果你不介意，每次 Tailscale 网络更新时你也可以自己手动本地运行该项目来触发同步，无需部署 Worker ，对于不想要自己的 worker 被打 / worker 资源紧张的用户来说是个不错的选择。
-
-## 清除所有记录
-
-通过 `reset.sh` 删除所有由本 Worker 管理的 DNS 记录（`comment=tailscale-sync`），执行前会要求二次确认：
-
-```bash
-bash reset.sh
-```
-
-也可以直接用 curl：
-
-```bash
-curl -X POST https://auto-cf-dns.xxx.workers.dev/purge \
-  -H "Authorization: Bearer your-token"
-```
-
-## Webhook 配置
-
-部署完成后，可以选择在 Tailscale admin console → [Settings → Webhooks](https://login.tailscale.com/admin/settings/webhooks) 添加 Webhook：
-
-- **Endpoint URL**：`https://auto-cf-dns.xxx.workers.dev/webhook`
-- **事件订阅**：勾选 `nodeCreated` `nodeDeleted` 事件
-
-Tailscale 会在创建时展示签名密钥（只显示一次），将其设置为 `TAILSCALE_WEBHOOK_SECRET`：
-
-```bash
-pnpm wrangler secret put TAILSCALE_WEBHOOK_SECRET
-```
-
-配置完成后设备上线/下线会自动立刻触发同步，无需等待下一次 cron。
-
-## 验证
-
-部署后可以[手动触发一次同步](#手动触发)，然后进入 Cloudflare DNS 管理界面，查看是否多了数条以 `comment=tailscale-sync` 标记的 A 记录，记录值为设备的 Tailscale IP。
+可以参考[示例文件](./compose.with-agh.yml)

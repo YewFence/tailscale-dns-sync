@@ -1,0 +1,16 @@
+services:
+  tailscale-dns-sync:
+    build: .
+    restart: unless-stopped
+    environment:
+      - TAILSCALE_API_KEY=${TAILSCALE_API_KEY}
+      - TAILSCALE_TAILNET=${TAILSCALE_TAILNET}
+      - DOMAIN_SUFFIX=${DOMAIN_SUFFIX}
+      - ADGUARD_URL=${ADGUARD_URL:-http://adguardhome:3000}
+      - ADGUARD_USERNAME=${ADGUARD_USERNAME}
+      - ADGUARD_PASSWORD=${ADGUARD_PASSWORD}
+      - CRON_SCHEDULE=${CRON_SCHEDULE:-0 * * * *}
+      - TRIGGER_TOKEN=${TRIGGER_TOKEN}
+      - PORT=3000
+    ports:
+      - "3000:3000"
