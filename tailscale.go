@@ -10,7 +10,7 @@ import (
 )
 
 type tailscaleDevice struct {
-	Hostname  string   `json:"hostname"`
+	Name      string   `json:"name"`
 	Addresses []string `json:"addresses"`
 }
 
@@ -44,9 +44,10 @@ func fetchTailscaleDevices(apiKey, tailnet string) (map[string]string, error) {
 
 	devices := make(map[string]string)
 	for _, d := range data.Devices {
+		shortName := strings.SplitN(d.Name, ".", 2)[0]
 		for _, addr := range d.Addresses {
 			if strings.HasPrefix(addr, "100.") {
-				devices[strings.ToLower(d.Hostname)] = addr
+				devices[strings.ToLower(shortName)] = addr
 				break
 			}
 		}
