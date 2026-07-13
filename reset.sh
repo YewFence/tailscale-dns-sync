@@ -25,7 +25,7 @@ else
   fi
 fi
 
-read -rp "This will delete ALL managed DNS rewrites. Continue? [y/N] " _confirm
+read -rp "This will delete ALL managed Technitium DNS records. Continue? [y/N] " _confirm
 if [[ "${_confirm,,}" != "y" ]]; then
   echo "Aborted."
   exit 0

@@ -8,26 +8,49 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/robfig/cron/v3"
 )
 
 func mustEnv(key string) string {
-	v := os.Getenv(key)
+	v := strings.TrimSpace(os.Getenv(key))
 	if v == "" {
 		log.Fatalf("Missing required environment variable: %s", key)
 	}
 	return v
 }
 
+func normalizeDomain(domain string) string {
+	return strings.ToLower(strings.Trim(strings.TrimSpace(domain), "."))
+}
+
+func envInt(key string, defaultValue int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return defaultValue
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		log.Fatalf("Invalid positive integer for %s: %q", key, raw)
+	}
+	return value
+}
+
 func main() {
+	domainSuffix := normalizeDomain(mustEnv("DOMAIN_SUFFIX"))
+	if domainSuffix == "" {
+		log.Fatal("DOMAIN_SUFFIX must contain a domain name")
+	}
+
 	cfg := syncConfig{
 		tailscaleAPIKey:  mustEnv("TAILSCALE_API_KEY"),
 		tailscaleTailnet: mustEnv("TAILSCALE_TAILNET"),
-		domainSuffix:     mustEnv("DOMAIN_SUFFIX"),
-		adguardURL:       mustEnv("ADGUARD_URL"),
-		adguardUsername:  mustEnv("ADGUARD_USERNAME"),
-		adguardPassword:  mustEnv("ADGUARD_PASSWORD"),
+		domainSuffix:     domainSuffix,
+		technitiumURL:    mustEnv("TECHNITIUM_URL"),
+		technitiumToken:  mustEnv("TECHNITIUM_TOKEN"),
+		dnsTTL:           envInt("DNS_TTL", 60),
 	}
 
 	cronSchedule := os.Getenv("CRON_SCHEDULE")
@@ -35,22 +58,27 @@ func main() {
 		cronSchedule = "0 * * * *"
 	}
 	triggerToken := os.Getenv("TRIGGER_TOKEN")
-	port, _ := strconv.Atoi(os.Getenv("PORT"))
-	if port == 0 {
-		port = 3001
+	port := envInt("PORT", 3001)
+	var operationMu sync.Mutex
+	runOperation := func(name string, operation func() error) {
+		if !operationMu.TryLock() {
+			log.Printf("%s skipped: another DNS operation is already running", name)
+			return
+		}
+		defer operationMu.Unlock()
+
+		if err := operation(); err != nil {
+			log.Printf("%s failed: %v", name, err)
+		}
 	}
 
 	// 启动时立即同步一次
-	if err := runSync(cfg); err != nil {
-		log.Printf("Initial sync failed: %v", err)
-	}
+	runOperation("Initial sync", func() error { return runSync(cfg) })
 
 	// 定时任务
 	c := cron.New()
 	if _, err := c.AddFunc(cronSchedule, func() {
-		if err := runSync(cfg); err != nil {
-			log.Printf("Scheduled sync failed: %v", err)
-		}
+		runOperation("Scheduled sync", func() error { return runSync(cfg) })
 	}); err != nil {
 		log.Fatalf("Invalid cron schedule %q: %v", cronSchedule, err)
 	}
@@ -83,11 +111,7 @@ func main() {
 		}
 		w.WriteHeader(http.StatusAccepted)
 		w.Write([]byte("Sync triggered"))
-		go func() {
-			if err := runSync(cfg); err != nil {
-				log.Printf("Manual sync failed: %v", err)
-			}
-		}()
+		go runOperation("Manual sync", func() error { return runSync(cfg) })
 	})
 
 	mux.HandleFunc("POST /purge", func(w http.ResponseWriter, r *http.Request) {
@@ -96,11 +120,7 @@ func main() {
 		}
 		w.WriteHeader(http.StatusAccepted)
 		w.Write([]byte("Purge triggered"))
-		go func() {
-			if err := runPurge(cfg); err != nil {
-				log.Printf("Purge failed: %v", err)
-			}
-		}()
+		go runOperation("Purge", func() error { return runPurge(cfg) })
 	})
 
 	addr := fmt.Sprintf(":%d", port)

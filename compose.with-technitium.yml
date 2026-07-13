@@ -1,0 +1,52 @@
+services:
+  technitium:
+    image: docker.io/technitium/dns-server:latest
+    container_name: technitium
+    hostname: technitium
+    restart: unless-stopped
+    environment:
+      - DNS_SERVER_DOMAIN=technitium
+      - DNS_SERVER_ADMIN_PASSWORD=${TECHNITIUM_ADMIN_PASSWORD}
+      - DNS_SERVER_RECURSION=AllowOnlyForPrivateNetworks
+      - DNS_SERVER_ENABLE_BLOCKING=${TECHNITIUM_ENABLE_BLOCKING:-false}
+      - DNS_SERVER_BLOCK_LIST_URLS=${TECHNITIUM_BLOCK_LIST_URLS:-}
+      - DNS_SERVER_LOG_FOLDER_PATH=/var/log/technitium/dns
+    ports:
+      - "${TAILSCALE_IP:-127.0.0.1}:53:53/tcp"
+      - "${TAILSCALE_IP:-127.0.0.1}:53:53/udp"
+      - "${TAILSCALE_IP:-127.0.0.1}:5380:5380/tcp"
+    volumes:
+      - technitium-config:/etc/dns
+      - technitium-logs:/var/log/technitium/dns
+    sysctls:
+      - net.ipv4.ip_local_port_range=1024 65535
+    healthcheck:
+      test: ["CMD", "dig", "+short", "@127.0.0.1", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  tailscale-dns-sync:
+    image: ghcr.io/yewfence/tailscale-dns-sync:main
+    # build: .  # 本地构建取消注释
+    restart: unless-stopped
+    depends_on:
+      technitium:
+        condition: service_healthy
+    environment:
+      - TAILSCALE_API_KEY=${TAILSCALE_API_KEY}
+      - TAILSCALE_TAILNET=${TAILSCALE_TAILNET}
+      - DOMAIN_SUFFIX=${DOMAIN_SUFFIX}
+      - TECHNITIUM_URL=http://technitium:5380
+      - TECHNITIUM_TOKEN=${TECHNITIUM_TOKEN}
+      - DNS_TTL=${DNS_TTL:-60}
+      - CRON_SCHEDULE=${CRON_SCHEDULE:-0 * * * *}
+      - TRIGGER_TOKEN=${TRIGGER_TOKEN:-}
+      - PORT=${PORT:-3001}
+    ports:
+      - "${TAILSCALE_IP:-127.0.0.1}:${PORT:-3001}:${PORT:-3001}"
+
+volumes:
+  technitium-config:
+  technitium-logs:
