@@ -27,6 +27,23 @@ services:
       retries: 20
       start_period: 5s
 
+  technitium-init:
+    image: ghcr.io/yewfence/tailscale-dns-sync:main
+    # build: .  # 本地构建取消注释
+    restart: "no"
+    command: ["init-technitium"]
+    depends_on:
+      technitium:
+        condition: service_healthy
+    environment:
+      - TECHNITIUM_URL=http://technitium:5380
+      - TECHNITIUM_ADMIN_USER=${TECHNITIUM_ADMIN_USER:-admin}
+      - TECHNITIUM_ADMIN_PASSWORD=${TECHNITIUM_ADMIN_PASSWORD}
+      - TECHNITIUM_TOKEN_NAME=${TECHNITIUM_TOKEN_NAME:-tailscale-dns-sync}
+      - TECHNITIUM_TOKEN_FILE=/run/secrets/technitium/token
+    volumes:
+      - technitium-secrets:/run/secrets/technitium
+
   tailscale-dns-sync:
     image: ghcr.io/yewfence/tailscale-dns-sync:main
     # build: .  # 本地构建取消注释
@@ -34,19 +51,24 @@ services:
     depends_on:
       technitium:
         condition: service_healthy
+      technitium-init:
+        condition: service_completed_successfully
     environment:
       - TAILSCALE_API_KEY=${TAILSCALE_API_KEY}
       - TAILSCALE_TAILNET=${TAILSCALE_TAILNET}
       - DOMAIN_SUFFIX=${DOMAIN_SUFFIX}
       - TECHNITIUM_URL=http://technitium:5380
-      - TECHNITIUM_TOKEN=${TECHNITIUM_TOKEN}
+      - TECHNITIUM_TOKEN_FILE=/run/secrets/technitium/token
       - DNS_TTL=${DNS_TTL:-60}
       - CRON_SCHEDULE=${CRON_SCHEDULE:-0 * * * *}
       - TRIGGER_TOKEN=${TRIGGER_TOKEN:-}
       - PORT=${PORT:-3001}
     ports:
       - "${TAILSCALE_IP:-127.0.0.1}:${PORT:-3001}:${PORT:-3001}"
+    volumes:
+      - technitium-secrets:/run/secrets/technitium:ro
 
 volumes:
   technitium-config:
   technitium-logs:
+  technitium-secrets:

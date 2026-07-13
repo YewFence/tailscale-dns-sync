@@ -39,6 +39,13 @@ func envInt(key string, defaultValue int) int {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "init-technitium" {
+		if err := runTechnitiumInit(); err != nil {
+			log.Fatalf("Technitium initialization failed: %v", err)
+		}
+		return
+	}
+
 	domainSuffix := normalizeDomain(mustEnv("DOMAIN_SUFFIX"))
 	if domainSuffix == "" {
 		log.Fatal("DOMAIN_SUFFIX must contain a domain name")
@@ -49,7 +56,7 @@ func main() {
 		tailscaleTailnet: mustEnv("TAILSCALE_TAILNET"),
 		domainSuffix:     domainSuffix,
 		technitiumURL:    mustEnv("TECHNITIUM_URL"),
-		technitiumToken:  mustEnv("TECHNITIUM_TOKEN"),
+		technitiumToken:  mustEnvOrFile("TECHNITIUM_TOKEN"),
 		dnsTTL:           envInt("DNS_TTL", 60),
 	}
 

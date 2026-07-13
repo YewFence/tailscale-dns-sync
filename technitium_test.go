@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -100,6 +102,110 @@ func TestEnsureForwarderZoneRejectsWrongType(t *testing.T) {
 	_, err := client.ensureForwarderZone("ts.example.com")
 	if err == nil || !strings.Contains(err.Error(), "expected Forwarder") {
 		t.Fatalf("error = %v, want wrong zone type error", err)
+	}
+}
+
+func TestCreateAPIToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/user/createToken" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("Authorization = %q, want empty", got)
+		}
+		requireForm(t, r, url.Values{
+			"user":      {"admin"},
+			"pass":      {"secret password"},
+			"tokenName": {"tailscale-dns-sync"},
+		})
+		fmt.Fprint(w, `{"username":"admin","tokenName":"tailscale-dns-sync","token":"generated-token","status":"ok"}`)
+	}))
+	defer server.Close()
+
+	client := newTechnitiumClient(server.URL, "")
+	token, err := client.createAPIToken("admin", "secret password", "tailscale-dns-sync")
+	if err != nil {
+		t.Fatalf("createAPIToken: %v", err)
+	}
+	if token != "generated-token" {
+		t.Fatalf("token = %q, want generated-token", token)
+	}
+}
+
+func TestEnsureTechnitiumTokenCreatesThenReusesToken(t *testing.T) {
+	createRequests := 0
+	listRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/user/createToken":
+			createRequests++
+			fmt.Fprint(w, `{"username":"admin","tokenName":"tailscale-dns-sync","token":"generated-token","status":"ok"}`)
+		case "/api/zones/list":
+			listRequests++
+			if got := r.Header.Get("Authorization"); got != "Bearer generated-token" {
+				t.Fatalf("Authorization = %q, want Bearer generated-token", got)
+			}
+			writeAPIResponse(t, w, `{"zones":[]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	tokenFile := filepath.Join(t.TempDir(), "secrets", "token")
+	client := newTechnitiumClient(server.URL, "")
+	if err := ensureTechnitiumToken(client, "admin", "password", "tailscale-dns-sync", tokenFile); err != nil {
+		t.Fatalf("first ensureTechnitiumToken: %v", err)
+	}
+	contents, err := os.ReadFile(tokenFile)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if got := strings.TrimSpace(string(contents)); got != "generated-token" {
+		t.Fatalf("token file = %q, want generated-token", got)
+	}
+	info, err := os.Stat(tokenFile)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("token file mode = %o, want 600", got)
+	}
+
+	if err := ensureTechnitiumToken(client, "admin", "password", "tailscale-dns-sync", tokenFile); err != nil {
+		t.Fatalf("second ensureTechnitiumToken: %v", err)
+	}
+	if createRequests != 1 {
+		t.Fatalf("create requests = %d, want 1", createRequests)
+	}
+	if listRequests != 1 {
+		t.Fatalf("list requests = %d, want 1", listRequests)
+	}
+}
+
+func TestReadEnvOrFile(t *testing.T) {
+	secretFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(secretFile, []byte(" file-token \n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	t.Setenv("TEST_TOKEN", "")
+	t.Setenv("TEST_TOKEN_FILE", secretFile)
+	value, err := readEnvOrFile("TEST_TOKEN")
+	if err != nil {
+		t.Fatalf("readEnvOrFile: %v", err)
+	}
+	if value != "file-token" {
+		t.Fatalf("value = %q, want file-token", value)
+	}
+
+	t.Setenv("TEST_TOKEN", "environment-token")
+	if _, err := readEnvOrFile("TEST_TOKEN"); err == nil {
+		t.Fatal("readEnvOrFile accepted both TEST_TOKEN and TEST_TOKEN_FILE")
 	}
 }
 

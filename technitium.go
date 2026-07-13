@@ -40,6 +40,14 @@ type technitiumAPIEnvelope struct {
 	ErrorMessage string          `json:"errorMessage"`
 }
 
+type technitiumTokenResponse struct {
+	Username     string `json:"username"`
+	TokenName    string `json:"tokenName"`
+	Token        string `json:"token"`
+	Status       string `json:"status"`
+	ErrorMessage string `json:"errorMessage"`
+}
+
 type technitiumClient struct {
 	baseURL    string
 	token      string
@@ -120,6 +128,54 @@ func (c *technitiumClient) listZones() ([]technitiumZone, error) {
 	}
 
 	return response.Zones, nil
+}
+
+func (c *technitiumClient) createAPIToken(username, password, tokenName string) (string, error) {
+	values := url.Values{
+		"user":      {username},
+		"pass":      {password},
+		"tokenName": {tokenName},
+	}
+	req, err := http.NewRequest(
+		http.MethodPost,
+		c.baseURL+"/api/user/createToken",
+		strings.NewReader(values.Encode()),
+	)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("Technitium API error: %d %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var response technitiumTokenResponse
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return "", fmt.Errorf("decode Technitium token response: %w", err)
+	}
+	if !strings.EqualFold(response.Status, "ok") {
+		message := response.ErrorMessage
+		if message == "" {
+			message = strings.TrimSpace(string(respBody))
+		}
+		return "", fmt.Errorf("Technitium API error: %s", message)
+	}
+	if strings.TrimSpace(response.Token) == "" {
+		return "", fmt.Errorf("Technitium API returned an empty token")
+	}
+
+	return response.Token, nil
 }
 
 func (c *technitiumClient) createForwarderZone(zone string) error {

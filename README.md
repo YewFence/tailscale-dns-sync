@@ -40,13 +40,17 @@ my-macbook.ts.example.com    -> 100.64.0.1
 
 ## Technitium 准备
 
-需要创建一个非过期 API Token：
+使用已有 Technitium 时，需要创建一个非过期 API Token：
 
 1. 登录 Technitium Web Console。
 2. 在用户菜单中创建 API Token。
 3. 将 Token 写入 `TECHNITIUM_TOKEN`。
 
 Token 需要拥有 Zones 的查看、修改和删除权限。服务会在 Zone 不存在时自动创建 `Forwarder` Zone，因此首次运行还需要创建 Zone 的权限。生产环境建议为同步服务创建权限受限的独立用户。
+
+使用 `compose.with-technitium.yml` 部署全套服务时不需要手工创建 Token。一次性的 `technitium-init` 服务会等待 Technitium 健康，通过管理员凭据调用官方 `/api/user/createToken` 接口，并把 Token 写入独立的 `technitium-secrets` 卷。同步服务以只读方式挂载该卷，Token 不会写入 `.env`。
+
+初始化是幂等的：再次启动时会先验证卷中的 Token；仍然有效就直接复用，失效时才创建新 Token。
 
 如果 `DOMAIN_SUFFIX` 已存在，它必须满足：
 
@@ -64,7 +68,8 @@ Token 需要拥有 Zones 的查看、修改和删除权限。服务会在 Zone �
 | `TAILSCALE_TAILNET` | 是 | Tailnet 名称 | `example.com` |
 | `DOMAIN_SUFFIX` | 是 | Technitium Forwarder Zone 和内网域名后缀 | `ts.example.com` |
 | `TECHNITIUM_URL` | 是 | Technitium Web/API 地址 | `http://technitium:5380` |
-| `TECHNITIUM_TOKEN` | 是 | Technitium 非过期 API Token | `932b...` |
+| `TECHNITIUM_TOKEN` | 二选一 | Technitium 非过期 API Token | `932b...` |
+| `TECHNITIUM_TOKEN_FILE` | 二选一 | 从文件读取 Technitium Token | `/run/secrets/technitium/token` |
 | `DNS_TTL` | 否 | 受管 A 记录 TTL，默认 60 秒 | `60` |
 | `CRON_SCHEDULE` | 否 | 同步周期，默认每小时 | `0 * * * *` |
 | `TRIGGER_TOKEN` | 否 | 手动触发接口的 Bearer Token | 随机字符串 |
@@ -75,11 +80,13 @@ Token 需要拥有 Zones 的查看、修改和删除权限。服务会在 Zone �
 
 | 变量 | 必填 | 说明 |
 |------|------|------|
-| `TECHNITIUM_ADMIN_PASSWORD` | 是 | Technitium 首次初始化的 admin 密码 |
+| `TECHNITIUM_ADMIN_PASSWORD` | 是 | Technitium 首次初始化和自动创建 Token 使用的管理员密码 |
+| `TECHNITIUM_ADMIN_USER` | 否 | 自动创建 Token 使用的管理员用户名，默认 `admin` |
+| `TECHNITIUM_TOKEN_NAME` | 否 | 自动创建的 Token 名称，默认 `tailscale-dns-sync` |
 | `TECHNITIUM_ENABLE_BLOCKING` | 否 | 首次初始化时启用广告过滤，默认 `false` |
 | `TECHNITIUM_BLOCK_LIST_URLS` | 否 | 首次初始化使用的逗号分隔 Block List URL |
 
-Technitium 的 Docker 初始化环境变量只在配置卷为空的首次启动时读取。实例初始化后，请通过 Web Console 修改管理员密码、广告过滤和 Block List。
+Technitium 的 Docker 初始化环境变量只在配置卷为空的首次启动时读取。实例初始化后，请通过 Web Console 修改管理员密码、广告过滤和 Block List。如果之后修改了管理员密码，并且需要重新生成 Token，也要同步更新 `.env` 中的 `TECHNITIUM_ADMIN_PASSWORD`。
 
 ## 快速开始
 
@@ -93,19 +100,28 @@ docker compose up -d
 
 ### 一起部署 Technitium
 
-先启动 Technitium，并在 Web Console 中创建 API Token：
+填写配置后直接启动即可：
 
 ```bash
 cp .env.example .env
-# 至少填写 TECHNITIUM_ADMIN_PASSWORD 和 TAILSCALE_IP
-docker compose -f compose.with-technitium.yml up -d technitium
-```
-
-打开 `http://<TAILSCALE_IP>:5380`，使用 `admin` 和 `TECHNITIUM_ADMIN_PASSWORD` 登录，创建非过期 API Token，然后写入 `.env`：
-
-```bash
+# 填写 Tailscale 配置、TECHNITIUM_ADMIN_PASSWORD 和 TAILSCALE_IP
 docker compose -f compose.with-technitium.yml up -d
 ```
+
+启动顺序由 Compose 自动完成：
+
+1. Technitium 初始化配置并通过 DNS 健康检查。
+2. `technitium-init` 创建或验证非过期 API Token。
+3. Token 写入 `technitium-secrets` 卷。
+4. 初始化服务成功退出后，`tailscale-dns-sync` 才会启动。
+
+可以查看初始化结果：
+
+```bash
+docker compose -f compose.with-technitium.yml logs technitium-init
+```
+
+自动创建的 Token 默认继承 `admin` 的权限。Token 只存在于 Docker 卷中，不会出现在同步容器的环境变量里；如果需要更严格的最小权限，可以在 Technitium 中准备仅拥有 Zones 权限的用户，并通过 `TECHNITIUM_ADMIN_USER` 和对应密码让初始化服务为该用户创建 Token。
 
 ### 本地开发
 
