@@ -54,7 +54,10 @@ services:
       technitium-init:
         condition: service_completed_successfully
     environment:
-      - TAILSCALE_API_KEY=${TAILSCALE_API_KEY}
+      - TAILSCALE_OAUTH_CLIENT_ID=${TAILSCALE_OAUTH_CLIENT_ID:-}
+      - TAILSCALE_OAUTH_CLIENT_SECRET=${TAILSCALE_OAUTH_CLIENT_SECRET:-}
+      # 已弃用回退：全权限 API key
+      - TAILSCALE_API_KEY=${TAILSCALE_API_KEY:-}
       - TAILSCALE_TAILNET=${TAILSCALE_TAILNET}
       - DOMAIN_SUFFIX=${DOMAIN_SUFFIX}
       - TECHNITIUM_URL=http://technitium:5380

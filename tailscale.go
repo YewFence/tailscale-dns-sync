@@ -18,15 +18,14 @@ type tailscaleDevicesResponse struct {
 	Devices []tailscaleDevice `json:"devices"`
 }
 
-func fetchTailscaleDevices(apiKey, tailnet string) (map[string]string, error) {
+func fetchTailscaleDevices(client *http.Client, tailnet string) (map[string]string, error) {
 	u := fmt.Sprintf("https://api.tailscale.com/api/v2/tailnet/%s/devices", url.PathEscape(tailnet))
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

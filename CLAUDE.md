@@ -17,8 +17,8 @@ go build -o tailscale-dns-sync .
 本地运行需要：
 
 ```bash
-export TAILSCALE_API_KEY=... TAILSCALE_TAILNET=... DOMAIN_SUFFIX=... \
-       TECHNITIUM_URL=... TECHNITIUM_TOKEN=...
+export TAILSCALE_OAUTH_CLIENT_ID=... TAILSCALE_OAUTH_CLIENT_SECRET=... TAILSCALE_TAILNET=... \
+       DOMAIN_SUFFIX=... TECHNITIUM_URL=... TECHNITIUM_TOKEN=...
 go run .
 ```
 

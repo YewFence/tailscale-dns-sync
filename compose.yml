@@ -4,7 +4,10 @@ services:
     # build: .  # 本地构建取消注释
     restart: unless-stopped
     environment:
-      - TAILSCALE_API_KEY=${TAILSCALE_API_KEY}
+      - TAILSCALE_OAUTH_CLIENT_ID=${TAILSCALE_OAUTH_CLIENT_ID:-}
+      - TAILSCALE_OAUTH_CLIENT_SECRET=${TAILSCALE_OAUTH_CLIENT_SECRET:-}
+      # 已弃用回退：全权限 API key
+      - TAILSCALE_API_KEY=${TAILSCALE_API_KEY:-}
       - TAILSCALE_TAILNET=${TAILSCALE_TAILNET}
       - DOMAIN_SUFFIX=${DOMAIN_SUFFIX}
       - TECHNITIUM_URL=${TECHNITIUM_URL}

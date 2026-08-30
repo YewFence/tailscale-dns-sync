@@ -3,13 +3,14 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
 )
 
 type syncConfig struct {
-	tailscaleAPIKey  string
+	tailscaleClient  *http.Client
 	tailscaleTailnet string
 	domainSuffix     string
 	technitiumURL    string
@@ -53,7 +54,7 @@ func runSync(cfg syncConfig) error {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		devices, devErr = fetchTailscaleDevices(cfg.tailscaleAPIKey, cfg.tailscaleTailnet)
+		devices, devErr = fetchTailscaleDevices(cfg.tailscaleClient, cfg.tailscaleTailnet)
 	}()
 	go func() {
 		defer wg.Done()

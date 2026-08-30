@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,7 +12,47 @@ import (
 	"sync"
 
 	"github.com/robfig/cron/v3"
+	"golang.org/x/oauth2/clientcredentials"
 )
+
+// newTailscaleClient 构造 Tailscale API 客户端。优先使用 OAuth client（最小权限），
+// 未配置时回退到全权限 API key 并打印迁移警告。
+func newTailscaleClient() *http.Client {
+	clientID := strings.TrimSpace(os.Getenv("TAILSCALE_OAUTH_CLIENT_ID"))
+	clientSecret := strings.TrimSpace(os.Getenv("TAILSCALE_OAUTH_CLIENT_SECRET"))
+	apiKey := strings.TrimSpace(os.Getenv("TAILSCALE_API_KEY"))
+
+	switch {
+	case clientID != "" && clientSecret != "":
+		log.Println("Tailscale auth: OAuth client (scoped)")
+		oauth := &clientcredentials.Config{
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			TokenURL:     "https://api.tailscale.com/api/v2/oauth/token",
+		}
+		return oauth.Client(context.Background())
+	case clientID != "" || clientSecret != "":
+		log.Fatal("TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET must be set together")
+	case apiKey != "":
+		log.Println("WARNING: TAILSCALE_API_KEY grants FULL access to the tailnet; migrate to a scoped OAuth client: https://tailscale.com/docs/reference/trust-credentials")
+		return &http.Client{Transport: bearerTransport{base: http.DefaultTransport, token: apiKey}}
+	default:
+		log.Fatal("Set TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET, or TAILSCALE_API_KEY (deprecated)")
+	}
+	return nil
+}
+
+// bearerTransport 为每个请求注入 Bearer token（仅用于已弃用的 API key 模式）。
+type bearerTransport struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (t bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(req)
+}
 
 func mustEnv(key string) string {
 	v := strings.TrimSpace(os.Getenv(key))
@@ -52,7 +93,7 @@ func main() {
 	}
 
 	cfg := syncConfig{
-		tailscaleAPIKey:  mustEnv("TAILSCALE_API_KEY"),
+		tailscaleClient:  newTailscaleClient(),
 		tailscaleTailnet: mustEnv("TAILSCALE_TAILNET"),
 		domainSuffix:     domainSuffix,
 		technitiumURL:    mustEnv("TECHNITIUM_URL"),

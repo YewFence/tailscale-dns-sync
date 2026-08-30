@@ -38,6 +38,16 @@ my-macbook.ts.example.com    -> 100.64.0.1
 - 公网 DNS 可以托管 `_acme-challenge` TXT 记录。
 - 内网 A 记录不会把 Tailscale IP 暴露到公网。
 
+## Tailscale 凭据准备
+
+推荐使用 Tailscale OAuth Client（trust credential）代替 API Key：API Key 拥有 tailnet 的完整权限，而 OAuth Client 可以把权限收窄到只读设备列表，配合最短一小时有效期的短期 access token 使用。
+
+1. 打开 Tailscale 管理台的 [Trust credentials](https://console.tailscale.com/admin/settings/trust-credentials) 页面。
+2. 选择 **Generate credential** → **OAuth**。
+3. 权限勾选 **Devices** 的 **Read**（对应 scope `devices:core:read`，即 `GET /api/v2/tailnet/:tailnet/devices`）。
+4. 生成后立刻复制 Client ID 和 Client Secret（Secret 只显示一次），填入 `TAILSCALE_OAUTH_CLIENT_ID` 和 `TAILSCALE_OAUTH_CLIENT_SECRET`。
+
+程序会在每次调用前通过 OAuth client credentials flow 自动换取短期 access token，无需手动刷新。若完全未配置 OAuth 变量，程序回退使用 `TAILSCALE_API_KEY` 并在日志中打印迁移警告。
 ## Technitium 准备
 
 使用已有 Technitium 时，需要创建一个非过期 API Token：
@@ -64,7 +74,9 @@ Token 需要拥有 Zones 的查看、修改和删除权限。服务会在 Zone �
 
 | 变量 | 必填 | 说明 | 示例 |
 |------|------|------|------|
-| `TAILSCALE_API_KEY` | 是 | Tailscale API Key | `tskey-api-xxx` |
+| `TAILSCALE_OAUTH_CLIENT_ID` | 二选一，推荐 | Tailscale OAuth Client ID | 见管理台 Credential created 页面 |
+| `TAILSCALE_OAUTH_CLIENT_SECRET` | 二选一，推荐 | Tailscale OAuth Client Secret | `tskey-client-xxx` |
+| `TAILSCALE_API_KEY` | 二选一，已弃用 | 全权限 Tailscale API Key，仅作回退 | `tskey-api-xxx` |
 | `TAILSCALE_TAILNET` | 是 | Tailnet 名称 | `example.com` |
 | `DOMAIN_SUFFIX` | 是 | Technitium Forwarder Zone 和内网域名后缀 | `ts.example.com` |
 | `TECHNITIUM_URL` | 是 | Technitium Web/API 地址 | `http://technitium:5380` |
@@ -125,7 +137,7 @@ docker compose -f compose.with-technitium.yml logs technitium-init
 
 ### 本地开发
 
-需要 Go 1.23+：
+需要 Go 1.27+：
 
 ```bash
 go run .
