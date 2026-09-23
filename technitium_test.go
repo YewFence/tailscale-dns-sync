@@ -38,6 +38,14 @@ func requireForm(t *testing.T, r *http.Request, expected url.Values) {
 }
 
 func TestEnsureForwarderZoneCreatesMissingZone(t *testing.T) {
+	for _, dnssecValidation := range []bool{true, false} {
+		t.Run(fmt.Sprintf("dnssecValidation=%t", dnssecValidation), func(t *testing.T) {
+			testEnsureForwarderZoneCreatesMissingZone(t, dnssecValidation)
+		})
+	}
+}
+
+func testEnsureForwarderZoneCreatesMissingZone(t *testing.T, dnssecValidation bool) {
 	created := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requireBearerToken(t, r)
@@ -57,7 +65,7 @@ func TestEnsureForwarderZoneCreatesMissingZone(t *testing.T) {
 				"initializeForwarder": {"true"},
 				"protocol":            {"Udp"},
 				"forwarder":           {"this-server"},
-				"dnssecValidation":    {"true"},
+				"dnssecValidation":    {fmt.Sprintf("%t", dnssecValidation)},
 			})
 			created = true
 			writeAPIResponse(t, w, `{"domain":"ts.example.com"}`)
@@ -79,7 +87,7 @@ func TestEnsureForwarderZoneCreatesMissingZone(t *testing.T) {
 	defer server.Close()
 
 	client := newTechnitiumClient(server.URL, "test-token")
-	records, err := client.ensureForwarderZone("ts.example.com")
+	records, err := client.ensureForwarderZone("ts.example.com", dnssecValidation)
 	if err != nil {
 		t.Fatalf("ensureForwarderZone: %v", err)
 	}
@@ -99,7 +107,7 @@ func TestEnsureForwarderZoneRejectsWrongType(t *testing.T) {
 	defer server.Close()
 
 	client := newTechnitiumClient(server.URL, "test-token")
-	_, err := client.ensureForwarderZone("ts.example.com")
+	_, err := client.ensureForwarderZone("ts.example.com", true)
 	if err == nil || !strings.Contains(err.Error(), "expected Forwarder") {
 		t.Fatalf("error = %v, want wrong zone type error", err)
 	}

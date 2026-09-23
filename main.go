@@ -79,6 +79,19 @@ func envInt(key string, defaultValue int) int {
 	return value
 }
 
+func envBool(key string, defaultValue bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return defaultValue
+	}
+
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		log.Fatalf("Invalid boolean for %s: %q", key, raw)
+	}
+	return value
+}
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "init-technitium" {
 		if err := runTechnitiumInit(); err != nil {
@@ -99,6 +112,7 @@ func main() {
 		technitiumURL:    mustEnv("TECHNITIUM_URL"),
 		technitiumToken:  mustEnvOrFile("TECHNITIUM_TOKEN"),
 		dnsTTL:           envInt("DNS_TTL", 60),
+		dnssecValidation: envBool("DNSSEC_VALIDATION", true),
 	}
 
 	cronSchedule := os.Getenv("CRON_SCHEDULE")

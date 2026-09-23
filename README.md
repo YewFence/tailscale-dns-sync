@@ -70,6 +70,8 @@ Token 需要拥有 Zones 的查看、修改和删除权限。服务会在 Zone �
 
 不满足这些条件时服务会拒绝同步，不会自动改造已有 Zone。
 
+自动创建的 FWD 记录默认启用 DNSSEC 校验。内网场景下若校验造成解析失败，可设置 `DNSSEC_VALIDATION=false` 后再创建 Zone。该变量不会修改已存在的 Zone；已有 Zone 需要在 Web Console 中编辑 FWD 记录关闭 DNSSEC Validation，或删除 Zone 后让服务重新创建。
+
 ## 环境变量
 
 | 变量 | 必填 | 说明 | 示例 |
@@ -83,6 +85,7 @@ Token 需要拥有 Zones 的查看、修改和删除权限。服务会在 Zone �
 | `TECHNITIUM_TOKEN` | 二选一 | Technitium 非过期 API Token | `932b...` |
 | `TECHNITIUM_TOKEN_FILE` | 二选一 | 从文件读取 Technitium Token | `/run/secrets/technitium/token` |
 | `DNS_TTL` | 否 | 受管 A 记录 TTL，默认 60 秒 | `60` |
+| `DNSSEC_VALIDATION` | 否 | 自动创建 Zone 时 FWD 记录是否启用 DNSSEC 校验，默认 `true`；只影响新建的 Zone | `false` |
 | `CRON_SCHEDULE` | 否 | 同步周期，默认每小时 | `0 * * * *` |
 | `TRIGGER_TOKEN` | 否 | 手动触发接口的 Bearer Token | 随机字符串 |
 | `PORT` | 否 | HTTP 服务端口，默认 3001 | `3001` |

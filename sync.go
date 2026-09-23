@@ -16,6 +16,7 @@ type syncConfig struct {
 	technitiumURL    string
 	technitiumToken  string
 	dnsTTL           int
+	dnssecValidation bool
 }
 
 func desiredARecords(devices map[string]string, suffix string) map[string]string {
@@ -58,7 +59,7 @@ func runSync(cfg syncConfig) error {
 	}()
 	go func() {
 		defer wg.Done()
-		records, dnsErr = technitium.ensureForwarderZone(cfg.domainSuffix)
+		records, dnsErr = technitium.ensureForwarderZone(cfg.domainSuffix, cfg.dnssecValidation)
 	}()
 	wg.Wait()
 

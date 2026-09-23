@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -178,14 +179,14 @@ func (c *technitiumClient) createAPIToken(username, password, tokenName string) 
 	return response.Token, nil
 }
 
-func (c *technitiumClient) createForwarderZone(zone string) error {
+func (c *technitiumClient) createForwarderZone(zone string, dnssecValidation bool) error {
 	values := url.Values{
 		"zone":                {zone},
 		"type":                {"Forwarder"},
 		"initializeForwarder": {"true"},
 		"protocol":            {"Udp"},
 		"forwarder":           {"this-server"},
-		"dnssecValidation":    {"true"},
+		"dnssecValidation":    {strconv.FormatBool(dnssecValidation)},
 	}
 
 	return c.do(http.MethodPost, "/api/zones/create", values, nil)
@@ -208,7 +209,7 @@ func (c *technitiumClient) fetchRecords(zone string) ([]technitiumRecord, error)
 	return response.Records, nil
 }
 
-func (c *technitiumClient) ensureForwarderZone(zone string) ([]technitiumRecord, error) {
+func (c *technitiumClient) ensureForwarderZone(zone string, dnssecValidation bool) ([]technitiumRecord, error) {
 	zones, err := c.listZones()
 	if err != nil {
 		return nil, err
@@ -230,7 +231,7 @@ func (c *technitiumClient) ensureForwarderZone(zone string) ([]technitiumRecord,
 	}
 
 	if !found {
-		if err := c.createForwarderZone(zone); err != nil {
+		if err := c.createForwarderZone(zone, dnssecValidation); err != nil {
 			return nil, fmt.Errorf("create Forwarder zone %s: %w", zone, err)
 		}
 	}
